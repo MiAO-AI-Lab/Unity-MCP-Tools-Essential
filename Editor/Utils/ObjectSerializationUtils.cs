@@ -11,36 +11,72 @@ using Object = UnityEngine.Object;
 
 namespace com.MiAO.Unity.MCP.Utils
 {
-    public static class ObjectSerializationUtils
+    /// <summary>
+    /// Configuration options for object serialization
+    /// </summary>
+    public class SerializationConfig
     {
-        private static readonly HashSet<object> _visitedObjects = new HashSet<object>();
-        private static int _maxDepth = 5;
-        private static int _currentDepth = 0;
+        public int MaxDepth { get; set; } = 6;
+        public bool ShowProperties { get; set; } = false;
+        public int MaxCollectionSize { get; set; } = 100;
+        public bool PrettyPrint { get; set; } = true;
+    }
+
+    /// <summary>
+    /// Instance-based object serializer that maintains serialization state
+    /// </summary>
+    public class ObjectSerializer
+    {
+        private readonly HashSet<object> _visitedObjects = new HashSet<object>();
+        private int _currentDepth = 0;
+        private SerializationConfig _config;
+
+        public ObjectSerializer(SerializationConfig config = null)
+        {
+            _config = config ?? new SerializationConfig();
+        }
 
         /// <summary>
         /// Serializes any Unity object to a comprehensive dictionary representation
         /// </summary>
-        /// <param name="obj">The object to serialize</param>
-        /// <param name="maxDepth">Maximum recursion depth to prevent infinite loops</param>
-        /// <returns>Dictionary containing serialized object data</returns>
-        public static Dictionary<string, object> SerializeObject(object obj, int maxDepth = 5, bool showProperties = false)
+        public Dictionary<string, object> SerializeObject(object obj)
         {
-            _maxDepth = maxDepth;
-            _currentDepth = 0;
-            _visitedObjects.Clear();
+            Reset();
             
             try
             {
-                return SerializeObjectInternal(obj, showProperties);
+                return SerializeObjectInternal(obj);
             }
             finally
             {
-                _visitedObjects.Clear();
-                _currentDepth = 0;
+                Reset();
             }
         }
 
-        private static Dictionary<string, object> SerializeObjectInternal(object obj, bool showProperties = false)
+        /// <summary>
+        /// One-line method to serialize any object to JSON
+        /// </summary>
+        public string SerializeToJson(object obj, string mode = "detailed")
+        {
+            if (mode == "normal")
+            {
+                // Unity's built-in serializer (does not support GameObject, Component)
+                return JsonUtility.ToJson(obj);
+            }
+            else
+            {
+                var serialized = SerializeObject(obj);
+                return ToJsonString(serialized);
+            }
+        }
+
+        private void Reset()
+        {
+            _visitedObjects.Clear();
+            _currentDepth = 0;
+        }
+
+        private Dictionary<string, object> SerializeObjectInternal(object obj)
         {
             var result = new Dictionary<string, object>();
             
@@ -53,10 +89,9 @@ namespace com.MiAO.Unity.MCP.Utils
 
             var type = obj.GetType();
             result["type"] = type.FullName;
-            // result["assemblyQualifiedName"] = type.AssemblyQualifiedName;
 
             // Check for circular references and max depth
-            if (_visitedObjects.Contains(obj) || _currentDepth >= _maxDepth)
+            if (_visitedObjects.Contains(obj) || _currentDepth >= _config.MaxDepth)
             {
                 result["value"] = $"[Circular Reference or Max Depth Reached: {type.Name}]";
                 return result;
@@ -77,7 +112,7 @@ namespace com.MiAO.Unity.MCP.Utils
                 // Handle Unity Object types specially
                 if (obj is Object unityObj)
                 {
-                    SerializeUnityObject(unityObj, result, showProperties);
+                    SerializeUnityObject(unityObj, result);
                     return result;
                 }
 
@@ -89,7 +124,7 @@ namespace com.MiAO.Unity.MCP.Utils
                 }
 
                 // Handle regular objects with reflection
-                SerializeObjectWithReflection(obj, result, showProperties);
+                SerializeObjectWithReflection(obj, result);
                 return result;
             }
             finally
@@ -99,7 +134,7 @@ namespace com.MiAO.Unity.MCP.Utils
             }
         }
 
-        private static bool IsPrimitiveType(Type type)
+        private bool IsPrimitiveType(Type type)
         {
             return type.IsPrimitive || 
                    type == typeof(string) || 
@@ -109,7 +144,7 @@ namespace com.MiAO.Unity.MCP.Utils
                    type.IsEnum;
         }
 
-        private static void SerializeUnityObject(Object unityObj, Dictionary<string, object> result, bool showProperties = false)
+        private void SerializeUnityObject(Object unityObj, Dictionary<string, object> result)
         {
             result["instanceID"] = unityObj.GetInstanceID();
             result["name"] = unityObj.name;
@@ -119,13 +154,13 @@ namespace com.MiAO.Unity.MCP.Utils
             switch (unityObj)
             {
                 case GameObject go:
-                    SerializeGameObject(go, result, showProperties);
+                    SerializeGameObject(go, result);
                     break;
                 case Component comp:
-                    SerializeComponent(comp, result, showProperties);
+                    SerializeComponent(comp, result);
                     break;
                 case ScriptableObject so:
-                    SerializeScriptableObject(so, result, showProperties);
+                    SerializeScriptableObject(so, result);
                     break;
                 case Material mat:
                     SerializeMaterial(mat, result);
@@ -137,12 +172,12 @@ namespace com.MiAO.Unity.MCP.Utils
                     SerializeMesh(mesh, result);
                     break;
                 default:
-                    SerializeGenericUnityObject(unityObj, result, showProperties);
+                    SerializeGenericUnityObject(unityObj, result);
                     break;
             }
         }
 
-        private static void SerializeGameObject(GameObject go, Dictionary<string, object> result, bool showProperties = false)
+        private void SerializeGameObject(GameObject go, Dictionary<string, object> result)
         {
             result["gameObjectData"] = new Dictionary<string, object>
             {
@@ -153,7 +188,7 @@ namespace com.MiAO.Unity.MCP.Utils
                 ["layerName"] = LayerMask.LayerToName(go.layer),
                 ["scene"] = go.scene.name,
                 ["isStatic"] = go.isStatic,
-                ["transform"] = SerializeObjectInternal(go.transform, showProperties),
+                ["transform"] = SerializeObjectInternal(go.transform),
                 ["componentCount"] = go.GetComponents<Component>().Length,
                 ["components"] = go.GetComponents<Component>()
                     .Where(c => c != null)
@@ -162,12 +197,12 @@ namespace com.MiAO.Unity.MCP.Utils
                         ["type"] = c.GetType().Name,
                         ["fullType"] = c.GetType().FullName,
                         ["enabled"] = c is Behaviour behaviour ? behaviour.enabled : true,
-                        ["data"] = SerializeObjectInternal(c, showProperties)
+                        ["data"] = SerializeObjectInternal(c)
                     }).ToArray()
             };
         }
 
-        private static void SerializeComponent(Component comp, Dictionary<string, object> result, bool showProperties = false)
+        private void SerializeComponent(Component comp, Dictionary<string, object> result)
         {
             var componentData = new Dictionary<string, object>
             {
@@ -192,16 +227,16 @@ namespace com.MiAO.Unity.MCP.Utils
             result["componentData"] = componentData;
             
             // Serialize all fields and properties
-            SerializeObjectWithReflection(comp, result, showProperties);
+            SerializeObjectWithReflection(comp, result);
         }
 
-        private static void SerializeTransform(Transform transform, Dictionary<string, object> componentData)
+        private void SerializeTransform(Transform transform, Dictionary<string, object> componentData)
         {
-            componentData["position"] = VectorToDict(transform.position);
-            componentData["localPosition"] = VectorToDict(transform.localPosition);
+            componentData["position"] = VectorToDict<Vector3>(transform.position);
+            componentData["localPosition"] = VectorToDict<Vector3>(transform.localPosition);
             componentData["rotation"] = QuaternionToDict(transform.rotation);
             componentData["localRotation"] = QuaternionToDict(transform.localRotation);
-            componentData["localScale"] = VectorToDict(transform.localScale);
+            componentData["localScale"] = VectorToDict<Vector3>(transform.localScale);
             componentData["childCount"] = transform.childCount;
             componentData["siblingIndex"] = transform.GetSiblingIndex();
             
@@ -215,18 +250,18 @@ namespace com.MiAO.Unity.MCP.Utils
             }
         }
 
-        private static void SerializeRectTransform(RectTransform rectTransform, Dictionary<string, object> componentData)
+        private void SerializeRectTransform(RectTransform rectTransform, Dictionary<string, object> componentData)
         {
             SerializeTransform(rectTransform, componentData);
-            componentData["anchoredPosition"] = VectorToDict(rectTransform.anchoredPosition);
-            componentData["sizeDelta"] = VectorToDict(rectTransform.sizeDelta);
-            componentData["anchorMin"] = VectorToDict(rectTransform.anchorMin);
-            componentData["anchorMax"] = VectorToDict(rectTransform.anchorMax);
-            componentData["pivot"] = VectorToDict(rectTransform.pivot);
+            componentData["anchoredPosition"] = VectorToDict<Vector2>(rectTransform.anchoredPosition);
+            componentData["sizeDelta"] = VectorToDict<Vector2>(rectTransform.sizeDelta);
+            componentData["anchorMin"] = VectorToDict<Vector2>(rectTransform.anchorMin);
+            componentData["anchorMax"] = VectorToDict<Vector2>(rectTransform.anchorMax);
+            componentData["pivot"] = VectorToDict<Vector2>(rectTransform.pivot);
             componentData["rect"] = RectToDict(rectTransform.rect);
         }
 
-        private static void SerializeImage(Image image, Dictionary<string, object> componentData)
+        private void SerializeImage(Image image, Dictionary<string, object> componentData)
         {
             componentData["color"] = ColorToDict(image.color);
             componentData["raycastTarget"] = image.raycastTarget;
@@ -257,7 +292,7 @@ namespace com.MiAO.Unity.MCP.Utils
             }
         }
 
-        private static void SerializeText(Text text, Dictionary<string, object> componentData)
+        private void SerializeText(Text text, Dictionary<string, object> componentData)
         {
             componentData["text"] = text.text;
             componentData["font"] = text.font?.name;
@@ -269,7 +304,7 @@ namespace com.MiAO.Unity.MCP.Utils
             componentData["richText"] = text.supportRichText;
         }
 
-        private static void SerializeButton(Button button, Dictionary<string, object> componentData)
+        private void SerializeButton(Button button, Dictionary<string, object> componentData)
         {
             componentData["interactable"] = button.interactable;
             componentData["transition"] = button.transition.ToString();
@@ -289,13 +324,13 @@ namespace com.MiAO.Unity.MCP.Utils
             }
         }
 
-        private static void SerializeScriptableObject(ScriptableObject so, Dictionary<string, object> result, bool showProperties = false)
+        private void SerializeScriptableObject(ScriptableObject so, Dictionary<string, object> result)
         {
             // Serialize all fields using reflection
-            SerializeObjectWithReflection(so, result, showProperties);
+            SerializeObjectWithReflection(so, result);
         }
 
-        private static void SerializeMaterial(Material mat, Dictionary<string, object> result)
+        private void SerializeMaterial(Material mat, Dictionary<string, object> result)
         {
             result["materialData"] = new Dictionary<string, object>
             {
@@ -322,7 +357,7 @@ namespace com.MiAO.Unity.MCP.Utils
             result["materialData"] = properties;
         }
 
-        private static void SerializeTexture(Texture tex, Dictionary<string, object> result)
+        private void SerializeTexture(Texture tex, Dictionary<string, object> result)
         {
             result["textureData"] = new Dictionary<string, object>
             {
@@ -335,7 +370,7 @@ namespace com.MiAO.Unity.MCP.Utils
             };
         }
 
-        private static void SerializeMesh(Mesh mesh, Dictionary<string, object> result)
+        private void SerializeMesh(Mesh mesh, Dictionary<string, object> result)
         {
             result["meshData"] = new Dictionary<string, object>
             {
@@ -347,22 +382,22 @@ namespace com.MiAO.Unity.MCP.Utils
             };
         }
 
-        private static void SerializeGenericUnityObject(Object obj, Dictionary<string, object> result, bool showProperties = false)
+        private void SerializeGenericUnityObject(Object obj, Dictionary<string, object> result)
         {
             // For other Unity objects, use reflection
-            SerializeObjectWithReflection(obj, result, showProperties);
+            SerializeObjectWithReflection(obj, result);
         }
 
-        private static void SerializeCollection(IEnumerable enumerable, Dictionary<string, object> result)
+        private void SerializeCollection(IEnumerable enumerable, Dictionary<string, object> result)
         {
             var items = new List<object>();
             var index = 0;
             
             foreach (var item in enumerable)
             {
-                if (index >= 100) // Limit collection size
+                if (index >= _config.MaxCollectionSize)
                 {
-                    items.Add($"[... and more items (truncated at 100)]");
+                    items.Add($"[... and more items (truncated at {_config.MaxCollectionSize})]");
                     break;
                 }
                 
@@ -374,7 +409,7 @@ namespace com.MiAO.Unity.MCP.Utils
             result["count"] = index;
         }
 
-        private static void SerializeObjectWithReflection(object obj, Dictionary<string, object> result, bool showProperties = false)
+        private void SerializeObjectWithReflection(object obj, Dictionary<string, object> result)
         {
             var fields = new Dictionary<string, object>();
             var properties = new Dictionary<string, object>();
@@ -399,50 +434,52 @@ namespace com.MiAO.Unity.MCP.Utils
             }
             
             // Serialize properties
-            var propertyInfos = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
-            foreach (var property in propertyInfos)
+            if (_config.ShowProperties)
             {
-                if (!property.CanRead || property.GetIndexParameters().Length > 0) continue;
-                
-                try
+                var propertyInfos = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+                foreach (var property in propertyInfos)
                 {
-                    var value = property.GetValue(obj);
-                    properties[property.Name] = SerializeObjectInternal(value);
-                }
-                catch (Exception ex)
-                {
-                    properties[property.Name] = $"[Error accessing property: {ex.Message}]";
+                    if (!property.CanRead || property.GetIndexParameters().Length > 0) continue;
+                    
+                    try
+                    {
+                        var value = property.GetValue(obj);
+                        properties[property.Name] = SerializeObjectInternal(value);
+                    }
+                    catch (Exception ex)
+                    {
+                        properties[property.Name] = $"[Error accessing property: {ex.Message}]";
+                    }
                 }
             }
             
             result["fields"] = fields;
-            if (showProperties)
+            if (_config.ShowProperties)
             {
                 result["properties"] = properties;
             }
         }
 
         // Helper methods for Unity-specific types
-        private static Dictionary<string, object> VectorToDict(Vector3 vector)
+        private static Dictionary<string, object> VectorToDict<T>(T vector) where T : struct
         {
-            return new Dictionary<string, object>
-            {
-                ["x"] = vector.x,
-                ["y"] = vector.y,
-                ["z"] = vector.z
-            };
+            var result = new Dictionary<string, object>();
+            var type = typeof(T);
+            
+            var xProperty = type.GetProperty("x");
+            var yProperty = type.GetProperty("y");
+            var zProperty = type.GetProperty("z");
+            var wProperty = type.GetProperty("w");
+            
+            if (xProperty != null) result["x"] = xProperty.GetValue(vector);
+            if (yProperty != null) result["y"] = yProperty.GetValue(vector);
+            if (zProperty != null) result["z"] = zProperty.GetValue(vector);
+            if (wProperty != null) result["w"] = wProperty.GetValue(vector);
+            
+            return result;
         }
-
-        private static Dictionary<string, object> VectorToDict(Vector2 vector)
-        {
-            return new Dictionary<string, object>
-            {
-                ["x"] = vector.x,
-                ["y"] = vector.y
-            };
-        }
-
-        private static Dictionary<string, object> QuaternionToDict(Quaternion quaternion)
+        
+        private Dictionary<string, object> QuaternionToDict(Quaternion quaternion)
         {
             return new Dictionary<string, object>
             {
@@ -450,7 +487,7 @@ namespace com.MiAO.Unity.MCP.Utils
                 ["y"] = quaternion.y,
                 ["z"] = quaternion.z,
                 ["w"] = quaternion.w,
-                ["eulerAngles"] = VectorToDict(quaternion.eulerAngles)
+                ["eulerAngles"] = VectorToDict<Vector3>(quaternion.eulerAngles)
             };
         }
 
@@ -477,26 +514,26 @@ namespace com.MiAO.Unity.MCP.Utils
             };
         }
 
-        private static Dictionary<string, object> BoundsToDict(Bounds bounds)
+        private Dictionary<string, object> BoundsToDict(Bounds bounds)
         {
             return new Dictionary<string, object>
             {
-                ["center"] = VectorToDict(bounds.center),
-                ["size"] = VectorToDict(bounds.size),
-                ["min"] = VectorToDict(bounds.min),
-                ["max"] = VectorToDict(bounds.max)
+                ["center"] = VectorToDict<Vector3>(bounds.center),
+                ["size"] = VectorToDict<Vector3>(bounds.size),
+                ["min"] = VectorToDict<Vector3>(bounds.min),
+                ["max"] = VectorToDict<Vector3>(bounds.max)
             };
         }
 
         /// <summary>
         /// Converts the serialized object dictionary to JSON string
         /// </summary>
-        public static string ToJsonString(Dictionary<string, object> serializedData, bool prettyPrint = true)
+        public string ToJsonString(Dictionary<string, object> serializedData)
         {
             try
             {
                 return Newtonsoft.Json.JsonConvert.SerializeObject(serializedData, 
-                    prettyPrint ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None,
+                    _config.PrettyPrint ? Newtonsoft.Json.Formatting.Indented : Newtonsoft.Json.Formatting.None,
                     new Newtonsoft.Json.JsonSerializerSettings
                     {
                         ReferenceLoopHandling = Newtonsoft.Json.ReferenceLoopHandling.Ignore,
@@ -508,21 +545,26 @@ namespace com.MiAO.Unity.MCP.Utils
                 return $"{{\"error\": \"JSON serialization failed: {ex.Message}\"}}";
             }
         }
+    }
 
+    /// <summary>
+    /// Static utility class for backward compatibility
+    /// </summary>
+    public static class ObjectSerializationUtils
+    {
         /// <summary>
-        /// One-line method to serialize any object to JSON
+        /// One-line method to serialize any object to JSON (backward compatibility)
         /// </summary>
         public static string SerializeToJson(object obj, string mode = "normal", int maxDepth = 6, bool showProperties = false, bool prettyPrint = true)
         {
-            if (mode == "normal")
+            switch (mode)
             {
-                // does not support GameObject, Component
-                return JsonUtility.ToJson(obj);
-            }
-            else
-            {
-                var serialized = SerializeObject(obj, maxDepth, showProperties);
-                return ToJsonString(serialized, prettyPrint);
+                case "normal":
+                    return JsonUtility.ToJson(obj);
+                case "detailed":
+                    return new ObjectSerializer(new SerializationConfig { MaxDepth = maxDepth, ShowProperties = showProperties }).SerializeToJson(obj);
+                default:
+                    return JsonUtility.ToJson(obj);
             }
         }
     }
