@@ -32,6 +32,7 @@
         }
     ],
     "dependencies": {
-        "com.miao.unity.mcp": "https://github.com/MiAO-AI-LAB/Unity-MCP.git"
+        "com.miao.unity.mcp": "https://github.com/MiAO-AI-LAB/Unity-MCP.git",
+        "com.unity.nuget.newtonsoft-json": "3.0.2"
     }
 } 

@@ -16,6 +16,8 @@ namespace com.MiAO.Unity.MCP.Essential.Tools
 {
     public partial class Tool_ScriptableObject
     {
+        int DETAILED_SERIALIZED_SCRIPTABLE_OBJECT_MAX_DEPTH = 6;
+
         [McpPluginTool
         (
             "ScriptableObject_Manage",
@@ -34,8 +36,10 @@ namespace com.MiAO.Unity.MCP.Essential.Tools
             string assetPath,
             [Description("For create: Full name of the ScriptableObject type. Should include full namespace path and class name.")]
             string? typeName = null,
-            [Description("For find: If true, it will print only brief data.")]
-            bool briefData = false,
+            [Description("For find: If true, it will serialize in normal mode. If false, it will serialize in detailed mode. Default is true.")]
+            bool normalSerializationMode = true,
+            [Description("For find: If true, it will show properties in serialized ScriptableObject. Default is false.")]
+            bool serializeWithProperties = false,
             [Description(@"For modify: Asset modification data. For properties like name, use ""props"": {""typeName"": ""UnityEngine.ScriptableObject"", ""props"": [{""name"": ""name"", ""typeName"": ""System.String"", ""value"": ""NewName""}]}. For Transform position/rotation, use: {""typeName"": ""UnityEngine.Transform"", ""props"": [{""name"": ""position"", ""typeName"": ""UnityEngine.Vector3"", ""value"": {""x"": 1, ""y"": 2, ""z"": 3}}]}. For array (such as Transform[]), use: {""typeName"": ""UnityEngine.Transform"", ""fields"": [{""name"": ""publicArray"", ""typeName"": ""UnityEngine.Transform[]"", ""value"": [-42744, -42754, -42768]}]}.")]
             SerializedMember? assetDiff = null
         )
@@ -44,7 +48,7 @@ namespace com.MiAO.Unity.MCP.Essential.Tools
             {
                 "create" => CreateScriptableObject(assetPath, typeName),
                 "delete" => DeleteScriptableObject(assetPath),
-                "find" => FindScriptableObject(assetPath, briefData),
+                "find" => FindScriptableObject(assetPath, normalSerializationMode, serializeWithProperties),
                 "modify" => ModifyScriptableObject(assetPath, assetDiff),
                 _ => "[Error] Invalid operation. Valid operations: 'create', 'delete', 'find', 'modify'"
             };
@@ -94,7 +98,7 @@ namespace com.MiAO.Unity.MCP.Essential.Tools
             });
         }
 
-        private string FindScriptableObject(string assetPath, bool briefData)
+        private string FindScriptableObject(string assetPath, bool normalSerializationMode, bool serializeWithProperties)
         {
             return MainThread.Instance.Run(() =>
             {
@@ -105,18 +109,37 @@ namespace com.MiAO.Unity.MCP.Essential.Tools
                 if (asset == null)
                     return Error.AssetNotFound(assetPath);
 
-                var serializedAsset = Reflector.Instance.Serialize(
+
+                try
+                {
+                    var serializedAsset = ObjectSerializationUtils.SerializeToJson(
                     asset,
-                    name: asset.name,
-                    recursive: !briefData,
-                    logger: McpPlugin.Instance.Logger
+                    maxDepth: DETAILED_SERIALIZED_SCRIPTABLE_OBJECT_MAX_DEPTH,
+                    mode: normalSerializationMode ? "normal" : "detailed",
+                    showProperties: serializeWithProperties,
+                    prettyPrint: true
                 );
 
                 return @$"[Success] Found ScriptableObject asset.
 # Data:
 ```json
-{JsonUtils.Serialize(serializedAsset)}
+{serializedAsset}
 ```";
+                }
+                catch (System.Exception ex)
+                {
+                    string mode = normalSerializationMode ? "normal" : "detailed";
+                    var error = $"[Error] Failed to serialize ScriptableObject {asset.name} in {mode} mode at '{assetPath}': {ex.Message}";
+                    Debug.LogError(error);
+
+                    if (normalSerializationMode)
+                    {
+                        error += $"\n You can try to use detailed serialization mode.";
+                    }
+
+                    return error;
+                }
+
             });
         }
 
