@@ -424,6 +424,14 @@ Duplicated instanceIDs:
                             continue;
                         }
 
+                        // Register undo BEFORE modifying the object
+                        if (objToModify is UnityEngine.Object unityObj)
+                        {
+                            // Pre-register the undo operation with a generic name
+                            string operationName = "Modify GameObject";
+                            McpUndoHelper.RegisterModifiedObject(unityObj, operationName);
+                        }
+
                         // Enhanced array handling - process fields and props separately
                         var modificationResult = TypeConversionUtils.ProcessObjectModifications(objToModify, gameObjectDiffs[i]);
                                                 
@@ -450,34 +458,10 @@ Duplicated instanceIDs:
                             errorCount++;
                         }
 
-                        // Register undo and mark the object as modified
-                        if (currentOpSuccess && objToModify is UnityEngine.Object unityObj)
+                        // Mark the object as dirty if modification was successful
+                        if (currentOpSuccess && objToModify is UnityEngine.Object dirtyObj)
                         {
-                            string operationName;
-                            string details = null;
-                            
-                            if (string.IsNullOrEmpty(modificationDetails) || modificationDetails == "modified")
-                            {
-                                operationName = "Modify GameObject";
-                            }
-                            else
-                            {
-                                // Extract property name from modification details for more specific operation name
-                                var propertyMatch = System.Text.RegularExpressions.Regex.Match(modificationDetails, @"Property '(\w+)'");
-                                if (propertyMatch.Success)
-                                {
-                                    var propertyName = propertyMatch.Groups[1].Value;
-                                    operationName = $"Modify {propertyName}";
-                                }
-                                else
-                                {
-                                    operationName = "Modify GameObject";
-                                }
-                                details = McpUndoHelper.SimplifyValueForUndo(modificationDetails);
-                            }
-                            
-                            McpUndoHelper.RegisterModifiedObject(unityObj, operationName, details);
-                            EditorUtility.SetDirty(unityObj);
+                            EditorUtility.SetDirty(dirtyObj);
                         }
                     }
                     catch (Exception ex)

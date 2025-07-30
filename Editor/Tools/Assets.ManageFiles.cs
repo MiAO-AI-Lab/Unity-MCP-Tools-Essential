@@ -83,6 +83,10 @@ namespace com.MiAO.Unity.MCP.Essential.Tools
                     }
                     var assetPath = AssetDatabase.GUIDToAssetPath(assetGuids[i]);
                     var assetObject = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetPath);
+                    if (assetObject == null)
+                    {
+                        return $"[Error] Failed to load asset at path '{assetPath}' with GUID '{assetGuids[i]}'. Asset file may be missing or corrupted.";
+                    }
                     var instanceID = assetObject.GetInstanceID();
                     stringBuilder.AppendLine($"{instanceID,-10} | {assetGuids[i],-36} | {assetPath}");
                 }
