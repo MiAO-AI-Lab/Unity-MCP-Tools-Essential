@@ -37,8 +37,55 @@ namespace com.MiAO.Unity.MCP.Essential.Tools
             if (shader == null)
                 return Error.ShaderNotFound(shaderName);
 
+            // make sure the directory exists
+            var directoryPath = System.IO.Path.GetDirectoryName(assetPath);
+            if (!string.IsNullOrEmpty(directoryPath) && !AssetDatabase.IsValidFolder(directoryPath))
+            {
+                try
+                {
+                    // create directory structure
+                    var parentPath = "Assets";
+                    var directories = directoryPath.Replace("Assets/", "").Replace("Assets\\", "").Split('/', '\\');
+                    
+                    foreach (var dir in directories)
+                    {
+                        if (string.IsNullOrEmpty(dir)) continue;
+                        
+                        var newPath = parentPath + "/" + dir;
+                        if (!AssetDatabase.IsValidFolder(newPath))
+                        {
+                            var guid = AssetDatabase.CreateFolder(parentPath, dir);
+                            if (string.IsNullOrEmpty(guid))
+                            {
+                                return $"[Error] Failed to create folder '{newPath}'";
+                            }
+                        }
+                        parentPath = newPath;
+                    }
+                    AssetDatabase.Refresh();
+                }
+                catch (System.Exception ex)
+                {
+                    return $"[Error] Failed to create directory structure for '{directoryPath}': {ex.Message}";
+                }
+            }
+
+            // check if the asset already exists
+            if (AssetDatabase.LoadAssetAtPath<UnityEngine.Material>(assetPath) != null)
+            {
+                return $"[Error] Material already exists at path '{assetPath}'";
+            }
+
             var material = new UnityEngine.Material(shader);
-            AssetDatabase.CreateAsset(material, assetPath);
+            
+            try
+            {
+                AssetDatabase.CreateAsset(material, assetPath);
+            }
+            catch (System.Exception ex)
+            {
+                return $"[Error] Failed to create material asset at '{assetPath}': {ex.Message}";
+            }
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 

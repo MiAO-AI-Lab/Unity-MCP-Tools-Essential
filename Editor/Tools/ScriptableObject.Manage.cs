@@ -71,8 +71,62 @@ namespace com.MiAO.Unity.MCP.Essential.Tools
                 if (!typeof(ScriptableObject).IsAssignableFrom(type))
                     return Error.TypeNotScriptableObject(typeName);
 
+                // check if it is an abstract base class
+                if (type == typeof(ScriptableObject))
+                    return "[Error] Cannot create instance of abstract ScriptableObject base class. Please specify a concrete derived class.";
+
+                if (type.IsAbstract)
+                    return $"[Error] Cannot create instance of abstract class '{typeName}'. Please specify a concrete derived class.";
+
+                // make sure the directory exists
+                var directoryPath = System.IO.Path.GetDirectoryName(assetPath);
+                if (!string.IsNullOrEmpty(directoryPath) && !AssetDatabase.IsValidFolder(directoryPath))
+                {
+                    try
+                    {
+                        // create directory structure
+                        var parentPath = "Assets";
+                        var directories = directoryPath.Replace("Assets/", "").Replace("Assets\\", "").Split('/', '\\');
+                        
+                        foreach (var dir in directories)
+                        {
+                            if (string.IsNullOrEmpty(dir)) continue;
+                            
+                            var newPath = parentPath + "/" + dir;
+                            if (!AssetDatabase.IsValidFolder(newPath))
+                            {
+                                var guid = AssetDatabase.CreateFolder(parentPath, dir);
+                                if (string.IsNullOrEmpty(guid))
+                                {
+                                    return $"[Error] Failed to create folder '{newPath}'";
+                                }
+                            }
+                            parentPath = newPath;
+                        }
+                        AssetDatabase.Refresh();
+                    }
+                    catch (System.Exception ex)
+                    {
+                        return $"[Error] Failed to create directory structure for '{directoryPath}': {ex.Message}";
+                    }
+                }
+
+                // check if the asset already exists
+                if (AssetDatabase.LoadAssetAtPath<ScriptableObject>(assetPath) != null)
+                {
+                    return $"[Error] ScriptableObject already exists at path '{assetPath}'";
+                }
+
                 var instance = ScriptableObject.CreateInstance(type);
-                AssetDatabase.CreateAsset(instance, assetPath);
+                
+                try
+                {
+                    AssetDatabase.CreateAsset(instance, assetPath);
+                }
+                catch (System.Exception ex)
+                {
+                    return $"[Error] Failed to create ScriptableObject asset at '{assetPath}': {ex.Message}";
+                }
                 AssetDatabase.SaveAssets();
                 AssetDatabase.Refresh();
 
@@ -157,7 +211,7 @@ namespace com.MiAO.Unity.MCP.Essential.Tools
                 if (asset == null)
                     return Error.AssetNotFound(assetPath);
 
-                // Check if the diff has neither fields nor props
+                // check if the diff has neither fields nor props
                 if ((assetDiff.fields == null || assetDiff.fields.Count == 0) &&
                     (assetDiff.props == null || assetDiff.props.Count == 0))
                 {
