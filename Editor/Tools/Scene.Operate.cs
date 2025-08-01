@@ -642,7 +642,7 @@ namespace com.MiAO.Unity.MCP.Essential.Tools
                         RenderTexture.active = null;
 
                         // Save to file
-                        var tempPath = System.IO.Path.GetTempPath();
+                        var tempPath = GetProjectTempMCPPath();
                         var timestamp = System.DateTime.Now.ToString("yyyyMMdd_HHmmss");
                         var filename = $"{baseFileName}_{viewName}_{timestamp}.png";
                         var fullPath = System.IO.Path.Combine(tempPath, filename);
@@ -990,7 +990,7 @@ namespace com.MiAO.Unity.MCP.Essential.Tools
                             RenderTexture.active = null;
 
                             // Generate file path
-                            var tempPath = System.IO.Path.GetTempPath();
+                            var tempPath = GetProjectTempMCPPath();
                             var timestamp = System.DateTime.Now.ToString("yyyyMMdd_HHmmss");
                             var filename = $"{baseFileName}_SceneView_{timestamp}.png";
                             var fullPath = System.IO.Path.Combine(tempPath, filename);
@@ -1116,6 +1116,36 @@ namespace com.MiAO.Unity.MCP.Essential.Tools
             public Vector3 secondaryAxis;    // Secondary dimension axis
             public float comfortMultiplier;  // Distance comfort factor
             public float heightBias;         // Vertical composition offset
+        }
+
+        /// <summary>
+        /// Get the project's Temp/.UnityMCP directory path and ensure it exists
+        /// </summary>
+        /// <returns>Full path to the project's Temp/.UnityMCP directory</returns>
+        private static string GetProjectTempMCPPath()
+        {
+            // Get project root directory (parent of Assets folder)
+            var projectPath = Directory.GetParent(Application.dataPath)?.FullName;
+            if (string.IsNullOrEmpty(projectPath))
+            {
+                throw new System.InvalidOperationException("Could not determine project root path");
+            }
+
+            // First ensure Temp directory exists
+            var tempPath = System.IO.Path.Combine(projectPath, "Temp");
+            if (!Directory.Exists(tempPath))
+            {
+                Directory.CreateDirectory(tempPath);
+            }
+
+            // Then create .UnityMCP subdirectory
+            var tempMcpPath = System.IO.Path.Combine(tempPath, ".UnityMCP");
+            if (!Directory.Exists(tempMcpPath))
+            {
+                Directory.CreateDirectory(tempMcpPath);
+            }
+
+            return tempMcpPath;
         }
     }
 } 
